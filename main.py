@@ -1,17 +1,16 @@
 import spacy
-from spacy.tokens import Span
-from fastapi import FastAPI, HTTPException
+import re
+from fastapi import FastAPI
 from pydantic import BaseModel
-import os
 
 # Load your existing trained model with a relative path
-model_path = ('model-best')
+model_path = 'model-best'
 nlp1 = spacy.load(model_path)
 
 # Define the FastAPI app
 app = FastAPI()
 
-# # Define the request model
+# Define the request model
 class RequestModel(BaseModel):
     user_id: str
     text: str
@@ -31,49 +30,59 @@ async def read_root():
 
 @app.post("/predict")
 async def process_text(request: RequestModel):
-    text = request.text.lower()  # Convert input to lowercase
+    # Convert input to lowercase and sanitize the text
+    text = request.text.lower()
+    sanitized_text = re.sub(r'[^a-z0-9., ]', '', text)  # Allow only lowercase letters, numbers, '.', and ','
 
     # Check for greetings
-    if text in greetings:
-        return {"response": greetings[text]}
+    if sanitized_text in greetings:
+        return {"response": greetings[sanitized_text]}
 
-    # Process the input text with the model
-    doc = nlp1(text)
+    # Process the sanitized input text with the model
+    doc = nlp1(sanitized_text)
 
-    # Step 1: Create a dictionary to hold results categorized by label
-    results = {}
-
-    # Store expenses separately
+    # Step 1: Create a list to hold each expense dictionary
     expenses = []
+    expense_amounts = []  # List to hold expenses
 
     # Extract entities and corresponding amounts
-    for token in doc:
-        if token.like_num:
-            expenses.append(token.text)  # Store found expenses in the list
-
     for ent in doc.ents:
         if ent.label_ != "EXPENSE":  # Handle non-expense entities
-            if ent.label_ not in results:
-                results[ent.label_] = {"description": [], "amounts": []}
-            results[ent.label_]["description"].append(ent.text)
-            # Map the latest expense to this entity if available
-            if expenses:
-                results[ent.label_]["amounts"].append(expenses.pop(0))  # Pop the first expense amount
+            category = ent.label_
+            expenses.append({
+                "category": category,
+                "description": ent.text,
+                "amount": 0.0  # Initialize the amount as 0 for now
+            })
 
-    # Step 2: Create the final response structure
-    final_response = []
-    for category, info in results.items():
-        response_entry = {
+    # Extract numerical values (expenses)
+    for token in doc:
+        if token.like_num:
+            expense_amounts.append(float(token.text))
+
+    # Logic to combine expenses with categories
+    index = 0
+    for i, data in enumerate(expenses):
+        if index < len(expense_amounts):  # Ensure there's a corresponding expense
+            expenses[i]["amount"] = expense_amounts[index]  # Assign the expense amount
+            index += 1  # Move to the next expense
+
+    # Prepare the final response with a list of expenses
+    final_response = {
+        "user_id": request.user_id,
+        "expenses": expenses  # Attach the list of expenses
+    }
+
+    # Check for valid output conditions
+    if not expenses:
+        return {
             "user_id": request.user_id,
-            "category": category,
-            "description": ", ".join(info["description"]),
-            "amount": ", ".join(info["amounts"])  # Aggregate expense amounts for this category
+            "response": "Sorry, I did not get that."
         }
-        final_response.append(response_entry)
 
-    # Return the result; if no entities are found, raise an error
-    return final_response if final_response else HTTPException(status_code=400, detail="Sorry, I did not get that.")
+    # Return the final output
+    return final_response
 
-# if __name__ == "__main__":
-#     import uvicorn
-#     uvicorn.run(app, host="127.0.0.1", port=8000)
+if __name__ == "__main__":
+    import uvicorn
+    uvicorn.run(app, host="127.0.0.1", port=8000)
