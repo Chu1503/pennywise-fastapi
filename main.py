@@ -5,7 +5,7 @@ from pydantic import BaseModel
 import os
 
 # Load your existing trained model with a relative path
-model_path = ('../model-best')
+model_path = ('model-best')
 nlp1 = spacy.load(model_path)
 
 # Define the FastAPI app
@@ -74,6 +74,6 @@ async def process_text(request: RequestModel):
     # Return the result; if no entities are found, raise an error
     return final_response if final_response else HTTPException(status_code=400, detail="Sorry, I did not get that.")
 
-if __name__ == "__main__":
-    import uvicorn
-    uvicorn.run(app, host="127.0.0.1", port=8000)
+# if __name__ == "__main__":
+#     import uvicorn
+#     uvicorn.run(app, host="127.0.0.1", port=8000)
